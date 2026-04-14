@@ -60,13 +60,18 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) 
     return chunks
 
 
+def _clean(text: str) -> str:
+    """Strip null bytes and other characters that break UTF-8 postgres storage."""
+    return text.replace("\x00", "")
+
+
 def read_pdf(path: Path) -> str:
     reader = PdfReader(str(path))
-    return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    return _clean("\n\n".join(page.extract_text() or "" for page in reader.pages))
 
 
 def read_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+    return _clean(path.read_text(encoding="utf-8", errors="ignore"))
 
 
 def load_documents(source: Path) -> list[tuple[str, dict]]:
