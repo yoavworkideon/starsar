@@ -23,7 +23,7 @@ from pypdf import PdfReader
 
 from rag.embeddings import embed
 
-DB_URL     = os.environ.get("DATABASE_URL", "postgresql://stardar:stardar@localhost:5432/stardar")
+DB_URL     = os.environ.get("DATABASE_URL", "postgresql://stardar:stardar@localhost:5433/stardar")
 CHUNK_SIZE = 512    # tokens approx (chars / 4)
 OVERLAP    = 64
 

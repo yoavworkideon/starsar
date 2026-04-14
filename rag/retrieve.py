@@ -2,6 +2,7 @@
 RAG Retriever — vector search via pgvector + CrossEncoder reranking.
 """
 
+import json
 import os
 import logging
 from typing import Any
@@ -14,7 +15,7 @@ from rag.embeddings import embed_one
 logger = logging.getLogger(__name__)
 
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-DB_URL = os.environ.get("DATABASE_URL", "postgresql://stardar:stardar@localhost:5432/stardar")
+DB_URL = os.environ.get("DATABASE_URL", "postgresql://stardar:stardar@localhost:5433/stardar")
 
 
 class RAGRetriever:
@@ -44,7 +45,7 @@ class RAGRetriever:
         Returns formatted string ready to inject into model context.
         """
         try:
-            embedding = embed_one(query)
+            embedding = str(embed_one(query))
             pool = await self._get_pool()
 
             placeholders = ", ".join(f"${i+2}" for i in range(len(collections)))
@@ -70,7 +71,8 @@ class RAGRetriever:
             # Format top_k results
             chunks = []
             for score, row in ranked[:top_k]:
-                meta = row["metadata"] or {}
+                raw_meta = row["metadata"] or {}
+                meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
                 source = meta.get("source", row["collection"])
                 chunks.append(f"[{source}] (relevance: {score:.2f})\n{row['content']}")
 
