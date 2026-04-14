@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+.env
+data/tle/*.txt
+*.h5
+*.npy
+*.npz
