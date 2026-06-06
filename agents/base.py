@@ -7,6 +7,7 @@ Each agent only needs to define:
 """
 
 from __future__ import annotations
+import re
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -29,19 +30,33 @@ class AgentResponse:
 
 
 STANCE_FORMAT = """
-Your response MUST follow this exact structure (used by the roundtable orchestrator):
+======================================================
+ROUNDTABLE OUTPUT FORMAT — YOU MUST FOLLOW THIS EXACTLY
+======================================================
+Your response MUST use this exact structure. No prose before it, no code blocks.
 
 STANCE: <SUPPORT | OPPOSE | NEUTRAL | FLAG_RISK>
 KEY_POINT: <one sentence — the most important thing you want the team to know>
 REASONING: <2–4 sentences of technical reasoning>
 RISK: <the biggest risk or open question you see>
+======================================================
 """
+
+# Regex to strip question framing from task for better vector search
+_QUESTION_PREFIX = re.compile(
+    r"(?i)^(what|how|which|does|is|are|can|describe|explain|identify|"
+    r"summarize|find|list|retrieve|cite|assess|evaluate|determine|"
+    r"are there|does the|what (existing|prior|relevant|published))\b.*?\b"
+    r"(research|papers?|studies|literature|work|results?|findings?)?\s+",
+)
 
 
 class BaseAgent:
     name: ClassVar[str] = "base"
     SYSTEM_PROMPT: ClassVar[str] = ""
     RAG_COLLECTIONS: ClassVar[list[str]] = []
+    # Agents can override to use a different format in roundtable mode
+    ROUNDTABLE_FORMAT: ClassVar[str] = STANCE_FORMAT
 
     def __init__(self):
         self.router    = ModelRouter()
@@ -66,14 +81,15 @@ class BaseAgent:
         context = ""
         if use_rag and self.RAG_COLLECTIONS:
             context = await self.retriever.retrieve(
-                query=task,
+                query=self._rag_query(task),
                 collections=self.RAG_COLLECTIONS,
                 top_k=5,
             )
 
+        # Prepend roundtable format so it takes priority over domain instructions
         system = self.SYSTEM_PROMPT
         if roundtable_mode:
-            system = system + "\n\n" + STANCE_FORMAT
+            system = self.ROUNDTABLE_FORMAT + "\n\n" + system
 
         level = force_level or await self.router.assess(task)
         raw   = await self.router.run(
@@ -98,12 +114,43 @@ class BaseAgent:
             raw=raw,
         )
 
+    def _rag_query(self, task: str) -> str:
+        """
+        Extract a clean search query from the task for vector retrieval.
+        Default: strip question framing so noun phrases dominate the embedding.
+        Override in agents where better domain-specific extraction is needed.
+        """
+        clean = _QUESTION_PREFIX.sub("", task.strip())
+        return (clean or task)[:200]
+
     @staticmethod
     def _parse_stance(text: str) -> dict:
-        """Parse STANCE/KEY_POINT/REASONING/RISK from model output."""
-        result = {}
+        """
+        Parse STANCE/KEY_POINT/REASONING/RISK from model output.
+        Handles multi-line values: collects all text from a key until the next key.
+        """
+        keys = ("STANCE", "KEY_POINT", "REASONING", "RISK")
+        result: dict[str, str] = {}
+        current_key: str | None = None
+        current_lines: list[str] = []
+
         for line in text.splitlines():
-            for key in ("STANCE", "KEY_POINT", "REASONING", "RISK"):
+            matched = False
+            for key in keys:
                 if line.upper().startswith(key + ":"):
-                    result[key.lower()] = line.split(":", 1)[1].strip()
+                    # Save previous key
+                    if current_key:
+                        result[current_key.lower()] = " ".join(current_lines).strip()
+                    current_key = key
+                    current_lines = [line.split(":", 1)[1].strip()]
+                    matched = True
+                    break
+            if not matched and current_key:
+                stripped = line.strip()
+                if stripped:
+                    current_lines.append(stripped)
+
+        if current_key:
+            result[current_key.lower()] = " ".join(current_lines).strip()
+
         return result

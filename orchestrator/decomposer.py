@@ -53,10 +53,18 @@ class TaskDecomposer:
         )
 
         try:
-            # Extract JSON even if model adds prose around it
+            # Extract first complete balanced JSON object — ignore any prose after it
             start = raw.find("{")
-            end   = raw.rfind("}") + 1
-            return json.loads(raw[start:end])
+            if start == -1:
+                raise ValueError("No JSON found")
+            depth = 0
+            for i, ch in enumerate(raw[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return json.loads(raw[start : i + 1])
         except (json.JSONDecodeError, ValueError) as e:
             logger.error("Decomposer failed to parse JSON: %s\nRaw: %s", e, raw)
             # Fallback: send to all agents

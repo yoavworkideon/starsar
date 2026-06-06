@@ -11,6 +11,19 @@ class CodeAgent(BaseAgent):
     name = "code"
     RAG_COLLECTIONS = ["simulation_code", "architecture"]
 
+    ROUNDTABLE_FORMAT = """
+======================================================
+ROUNDTABLE OUTPUT FORMAT — YOU MUST FOLLOW THIS EXACTLY
+======================================================
+STANCE: <SUPPORT | OPPOSE | NEUTRAL | FLAG_RISK>
+KEY_POINT: <one sentence — implementation verdict: feasible / complex / blocked>
+REASONING: <2–4 sentences: what already exists in the codebase, what needs building, rough complexity>
+RISK: <the biggest implementation risk, dependency, or blocker>
+
+Do NOT write code in roundtable mode. Assessment only — code comes after approval.
+======================================================
+"""
+
     SYSTEM_PROMPT = """You are a senior Python engineer specializing in scientific computing
 and radar signal processing simulation.
 
