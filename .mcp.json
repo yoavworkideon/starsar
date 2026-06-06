@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "stardar-rag": {
+      "command": "/Users/ASUS/stardar/.venv/bin/python3",
+      "args": ["-m", "rag.mcp_server"],
+      "env": {
+        "PYTHONPATH": "/Users/ASUS/stardar"
+      }
+    }
+  }
+}
