@@ -12,10 +12,11 @@ from dataclasses import dataclass
 @dataclass
 class BistaticGeometry:
     """Represents a snapshot of the bistatic radar geometry."""
-    tx_pos: np.ndarray       # Transmitter (satellite) position [x, y, z] m
-    tx_vel: np.ndarray       # Transmitter velocity [vx, vy, vz] m/s
-    rx_pos: np.ndarray       # Receiver position [x, y, z] m
-    target_pos: np.ndarray   # Target position [x, y, z] m
+
+    tx_pos: np.ndarray  # Transmitter (satellite) position [x, y, z] m
+    tx_vel: np.ndarray  # Transmitter velocity [vx, vy, vz] m/s
+    rx_pos: np.ndarray  # Receiver position [x, y, z] m
+    target_pos: np.ndarray  # Target position [x, y, z] m
 
 
 def bistatic_range(geom: BistaticGeometry) -> tuple[float, float, float]:
@@ -45,13 +46,15 @@ def bistatic_angle(geom: BistaticGeometry) -> float:
     return np.arccos(np.clip(cos_beta, -1.0, 1.0))
 
 
-def bistatic_doppler(geom: BistaticGeometry, wavelength: float,
-                     target_vel: np.ndarray = None) -> float:
+def bistatic_doppler(
+    geom: BistaticGeometry, wavelength: float, target_vel: np.ndarray = None
+) -> float:
     """
     Compute bistatic Doppler frequency shift.
 
-    f_d = (1/λ) * d/dt(RT + RR)
-        = (1/λ) * [v_tx · r̂_T + v_target · (r̂_T - r̂_R)]
+    f_d = -(1/λ) * d/dt(RT + RR)
+        with dRT/dt = (v_target - v_tx)·r̂_T  and  dRR/dt = -v_target·r̂_R  (Rx static),
+        r̂_T = unit Tx->target, r̂_R = unit target->Rx.
 
     Args:
         geom: bistatic geometry snapshot
@@ -67,11 +70,12 @@ def bistatic_doppler(geom: BistaticGeometry, wavelength: float,
     r_t = geom.target_pos - geom.tx_pos
     r_r = geom.rx_pos - geom.target_pos
 
-    r_hat_t = r_t / np.linalg.norm(r_t)   # unit vector Tx -> target
-    r_hat_r = r_r / np.linalg.norm(r_r)   # unit vector target -> Rx
+    r_hat_t = r_t / np.linalg.norm(r_t)  # unit vector Tx -> target
+    r_hat_r = r_r / np.linalg.norm(r_r)  # unit vector target -> Rx
 
-    # Rate of change of RT (satellite moving, target potentially moving)
-    dRT_dt = np.dot(geom.tx_vel, r_hat_t) + np.dot(target_vel, r_hat_t)
+    # Rate of change of RT = |tx_pos - target_pos|:
+    #   d/dt = (v_target - v_tx) · r̂_T   (r̂_T points Tx -> target; a closing Tx shortens RT)
+    dRT_dt = np.dot(target_vel, r_hat_t) - np.dot(geom.tx_vel, r_hat_t)
 
     # Rate of change of RR (target moving toward/away from Rx)
     dRR_dt = -np.dot(target_vel, r_hat_r)
@@ -86,8 +90,9 @@ def range_resolution(bandwidth_hz: float) -> float:
     return c / (2 * bandwidth_hz)
 
 
-def azimuth_resolution(wavelength: float, slant_range: float,
-                       velocity: float, integration_time: float) -> float:
+def azimuth_resolution(
+    wavelength: float, slant_range: float, velocity: float, integration_time: float
+) -> float:
     """
     Bistatic azimuth resolution estimate.
     δa ≈ λ * R / (2 * V * T_int)
