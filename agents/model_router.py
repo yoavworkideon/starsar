@@ -48,7 +48,9 @@ def _get_anthropic_client() -> AsyncAnthropic:
         # cost logging); otherwise call Anthropic directly with the same behavior as before.
         if _GATEWAY_URL:
             _api_key = _GATEWAY_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
-            _base_url = _GATEWAY_URL
+            # Normalize to the /anthropic passthrough whether the env var is the base or
+            # already includes /anthropic — avoids a silent misroute on misconfiguration.
+            _base_url = _gateway_root(_GATEWAY_URL) + "/anthropic"
         else:
             _api_key = os.environ["ANTHROPIC_API_KEY"]
             _base_url = None
@@ -70,7 +72,7 @@ def _get_anthropic_client() -> AsyncAnthropic:
 _OLLAMA_ROUTER = "llama3.2:3b"
 _OLLAMA_STANDARD = "deepseek-r1:14b"
 _SONNET = "claude-sonnet-4-6"
-_OPUS = "claude-opus-4-6"
+_OPUS = "claude-opus-4-8"
 
 # Gateway (LiteLLM) — route Claude calls through the gateway for routing + Langfuse logging.
 # Empty STARDAR_GATEWAY_URL = call Anthropic directly (unchanged behavior).
@@ -187,7 +189,8 @@ class ModelRouter:
             },
         }
         headers = {"Authorization": f"Bearer {_GATEWAY_KEY}"}
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(endpoint, json=payload, headers=headers)
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"].strip().upper()

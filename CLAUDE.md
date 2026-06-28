@@ -17,6 +17,11 @@ manual for working in the repo.
 - **Ollama runs locally on the host** (not in Docker): models `llama3.2:3b` and `deepseek-r1:14b`
   must be pulled and `ollama serve` running before the roundtable will work.
 - Secrets live in `.env` (gitignored): `DATABASE_URL`, `ANTHROPIC_API_KEY`, `OLLAMA_HOST`.
+- **Optional LiteLLM gateway (cost-router):** set `STARDAR_GATEWAY_URL` (gateway base URL — with or
+  without a trailing `/anthropic`), `STARDAR_GATEWAY_KEY` (LiteLLM virtual key — a secret), and
+  `STARDAR_CLIENT_TAG` (Langfuse tag, default `stardar`) to route Claude calls **and** the difficulty
+  classifier (`router` alias) through the gateway for centralized routing + Langfuse cost logging.
+  Unset = call Anthropic/Ollama directly (unchanged behavior). See `agents/model_router.py`.
 
 ## Setup / run
 
