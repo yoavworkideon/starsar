@@ -44,8 +44,17 @@ def _get_anthropic_client() -> AsyncAnthropic:
             ),
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
         )
+        # Route through the LiteLLM gateway when configured (centralized routing + Langfuse
+        # cost logging); otherwise call Anthropic directly with the same behavior as before.
+        if _GATEWAY_URL:
+            _api_key = _GATEWAY_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
+            _base_url = _GATEWAY_URL
+        else:
+            _api_key = os.environ["ANTHROPIC_API_KEY"]
+            _base_url = None
         _anthropic_client = AsyncAnthropic(
-            api_key=os.environ["ANTHROPIC_API_KEY"],
+            api_key=_api_key,
+            base_url=_base_url,
             max_retries=3,
             # Pass timeout directly to the SDK — it overrides the httpx client timeout
             # per-request. Without this, the SDK default (600s × 4 attempts = 40 min)
@@ -56,11 +65,25 @@ def _get_anthropic_client() -> AsyncAnthropic:
         )
     return _anthropic_client
 
+
 # Model identifiers
-_OLLAMA_ROUTER   = "llama3.2:3b"
+_OLLAMA_ROUTER = "llama3.2:3b"
 _OLLAMA_STANDARD = "deepseek-r1:14b"
-_SONNET          = "claude-sonnet-4-6"
-_OPUS            = "claude-opus-4-6"
+_SONNET = "claude-sonnet-4-6"
+_OPUS = "claude-opus-4-6"
+
+# Gateway (LiteLLM) — route Claude calls through the gateway for routing + Langfuse logging.
+# Empty STARDAR_GATEWAY_URL = call Anthropic directly (unchanged behavior).
+_GATEWAY_URL = os.environ.get("STARDAR_GATEWAY_URL", "")
+_GATEWAY_KEY = os.environ.get("STARDAR_GATEWAY_KEY", "")
+_CLIENT_TAG = os.environ.get("STARDAR_CLIENT_TAG", "stardar")
+
+
+def _gateway_root(anthropic_url: str) -> str:
+    """Gateway base for the OpenAI /v1 endpoint, derived from the /anthropic passthrough URL."""
+    u = anthropic_url.rstrip("/")
+    return u[: -len("/anthropic")] if u.endswith("/anthropic") else u
+
 
 class ModelRouter:
     """
@@ -69,9 +92,9 @@ class ModelRouter:
     """
 
     _MODEL_MAP = {
-        ComplexityLevel.TRIVIAL:  ("ollama", _OLLAMA_ROUTER),
+        ComplexityLevel.TRIVIAL: ("ollama", _OLLAMA_ROUTER),
         ComplexityLevel.STANDARD: ("ollama", _OLLAMA_STANDARD),
-        ComplexityLevel.COMPLEX:  ("anthropic", _SONNET),
+        ComplexityLevel.COMPLEX: ("anthropic", _SONNET),
         ComplexityLevel.CRITICAL: ("anthropic", _OPUS),
     }
 
@@ -118,27 +141,56 @@ class ModelRouter:
     # ------------------------------------------------------------------
 
     async def _assess(self, task: str) -> ComplexityLevel:
-        """Use llama3.2:3b to classify task complexity. Fast and cheap."""
+        """Classify task complexity. Uses the gateway's shared `router` alias (Groq 8B +
+        fallback chain) when configured — cloud-first and logged; else local llama3.2:3b.
+        Defaults to COMPLEX on failure (escalate-on-uncertainty)."""
         try:
-            response = await asyncio.to_thread(
-                ollama.chat,
-                model=_OLLAMA_ROUTER,
-                messages=[
-                    {"role": "system", "content": ASSESSOR_PROMPT},
-                    {"role": "user",   "content": task},
-                ],
-                options={"temperature": 0.0, "num_predict": 5},
-            )
-            raw = response["message"]["content"].strip().upper()
+            if _GATEWAY_URL:
+                raw = await self._assess_via_gateway(task)
+            else:
+                response = await asyncio.to_thread(
+                    ollama.chat,
+                    model=_OLLAMA_ROUTER,
+                    messages=[
+                        {"role": "system", "content": ASSESSOR_PROMPT},
+                        {"role": "user", "content": task},
+                    ],
+                    options={"temperature": 0.0, "num_predict": 5},
+                )
+                raw = response["message"]["content"].strip().upper()
             # Guard against verbose responses
             for level in ComplexityLevel:
                 if level.value in raw:
                     return level
-            logger.warning("Assessor returned unexpected '%s', defaulting to COMPLEX", raw)
+            logger.warning(
+                "Assessor returned unexpected '%s', defaulting to COMPLEX", raw
+            )
             return ComplexityLevel.COMPLEX
         except Exception as e:
             logger.error("Assessor failed (%s), defaulting to COMPLEX", e)
             return ComplexityLevel.COMPLEX
+
+    async def _assess_via_gateway(self, task: str) -> str:
+        """Classify via the gateway's shared `router` alias (Groq 8B → OpenRouter → Haiku)."""
+        endpoint = _gateway_root(_GATEWAY_URL) + "/v1/chat/completions"
+        payload = {
+            "model": "router",
+            "messages": [
+                {"role": "system", "content": ASSESSOR_PROMPT},
+                {"role": "user", "content": task},
+            ],
+            "temperature": 0.0,
+            "max_tokens": 5,
+            "litellm_metadata": {
+                "tags": [f"client:{_CLIENT_TAG}", "model:router"],
+                "trace_name": f"{_CLIENT_TAG}-assess",
+            },
+        }
+        headers = {"Authorization": f"Bearer {_GATEWAY_KEY}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(endpoint, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"].strip().upper()
 
     async def _run_ollama(self, model: str, system: str, user: str) -> str:
         # deepseek-r1 is a thinking model — cap tokens to avoid runaway generation.
@@ -150,7 +202,7 @@ class ModelRouter:
                 model=model,
                 messages=[
                     {"role": "system", "content": system},
-                    {"role": "user",   "content": user},
+                    {"role": "user", "content": user},
                 ],
                 options={"temperature": 0.3, "num_predict": num_predict},
             )
@@ -163,6 +215,15 @@ class ModelRouter:
         # AsyncAnthropic — non-blocking, safe for asyncio.gather() parallelism.
         # Prompt caching on the static system prompt reduces cost on repeated roundtable calls.
         # Semaphore prevents pool saturation races during parallel cold-start connections.
+        # When routed through the gateway, tag the call so Langfuse attributes cost per client.
+        extra_body: dict = {}
+        if _GATEWAY_URL:
+            extra_body = {
+                "litellm_metadata": {
+                    "tags": [f"client:{_CLIENT_TAG}", f"model:{model}"],
+                    "trace_name": _CLIENT_TAG,
+                }
+            }
         async with _anthropic_semaphore:
             response = await self._anthropic.messages.create(
                 model=model,
@@ -175,6 +236,7 @@ class ModelRouter:
                     }
                 ],
                 messages=[{"role": "user", "content": user}],
+                extra_body=extra_body,
             )
         return response.content[0].text
 
