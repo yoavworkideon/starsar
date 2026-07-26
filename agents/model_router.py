@@ -71,8 +71,8 @@ def _get_anthropic_client() -> AsyncAnthropic:
 # Model identifiers
 _OLLAMA_ROUTER = "llama3.2:3b"
 _OLLAMA_STANDARD = "deepseek-r1:14b"
-_SONNET = "claude-sonnet-4-6"
-_OPUS = "claude-opus-4-8"
+_SONNET = "claude-sonnet-5"
+_OPUS = "claude-opus-5"
 
 # Gateway (LiteLLM) — route Claude calls through the gateway for routing + Langfuse logging.
 # Empty STARDAR_GATEWAY_URL = call Anthropic directly (unchanged behavior).

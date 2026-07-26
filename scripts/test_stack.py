@@ -196,7 +196,7 @@ async def test_standard_route():
 # ── 6. COMPLEX routing (Sonnet) ────────────────────────────────────────────────
 
 async def test_complex_route():
-    section("6. MODEL ROUTING — COMPLEX (claude-sonnet-4-6)")
+    section("6. MODEL ROUTING — COMPLEX (claude-sonnet-5)")
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key or api_key == "dummy" or api_key == "REPLACE_ME":
         skip("No ANTHROPIC_API_KEY — skipping Sonnet/Opus tests")

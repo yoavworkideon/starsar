@@ -9,8 +9,8 @@ from enum import Enum
 class ComplexityLevel(str, Enum):
     TRIVIAL  = "TRIVIAL"   # llama3.2:3b
     STANDARD = "STANDARD"  # deepseek-r1:14b
-    COMPLEX  = "COMPLEX"   # claude-sonnet-4-6
-    CRITICAL = "CRITICAL"  # claude-opus-4-6
+    COMPLEX  = "COMPLEX"   # claude-sonnet-5
+    CRITICAL = "CRITICAL"  # claude-opus-5
 
 
 # Human-readable rules injected into the assessor prompt

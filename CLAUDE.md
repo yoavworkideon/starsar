@@ -55,8 +55,8 @@ is the quiet version. `scripts/test_stack.py` is the integration smoke test.
    - `GeometryAgent` (`geometry`), `SignalAgent` (`signal`), `SNRAgent` (`snr`),
      `LiteratureAgent` (`literature`, RAG-backed), `CodeAgent` (`code`, forces ≥ COMPLEX).
    - `model_router.py` — cross-cutting infra. Routes each call by assessed complexity:
-     `TRIVIAL → llama3.2:3b`, `STANDARD → deepseek-r1:14b`, `COMPLEX → claude-sonnet-4-6`,
-     `CRITICAL → claude-opus-4-6`. Assessor (`complexity.py`) classifies via llama3.2:3b at temp 0.
+     `TRIVIAL → llama3.2:3b`, `STANDARD → deepseek-r1:14b`, `COMPLEX → claude-sonnet-5`,
+     `CRITICAL → claude-opus-5`. Assessor (`complexity.py`) classifies via llama3.2:3b at temp 0.
      Anthropic client is a singleton with prompt caching enabled.
 
 3. **Orchestration (`orchestrator/`)** — the roundtable pipeline:
